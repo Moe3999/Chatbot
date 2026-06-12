@@ -11,78 +11,28 @@ from langchain_community.vectorstores.utils import filter_complex_metadata
 # Using Path is more robust than hardcoding strings.
 from pathlib import Path
 
-# Construct the path to the PDF file.
-# Path("..") moves one directory up from the current notebook/script location.
-# This makes the code portable across different machines.
-pdf_path = Path("data") / "CIS_Controls__v8__Critical_Security_Controls__2023_08.pdf"
+pdf_files = list(Path("data").glob("*.pdf"))
 
-# Create a loader for the PDF.
-# strategy="hi_res" was chosen because:
-# - It performs layout-aware parsing.
-# - It attempts to preserve document structure.
-# - It can better distinguish titles, headings, paragraphs, lists, and tables.
-# - This often produces higher-quality chunks for Retrieval-Augmented Generation (RAG)
-#   compared to simple text extraction.
-loader = UnstructuredLoader(
-    file_path=pdf_path,
-    strategy="hi_res"
-)
+for pdf_path in pdf_files:
 
-# Parse the PDF and extract document elements.
-# Each element becomes a LangChain Document object containing:
-# - page_content -> the extracted text
-# - metadata -> information about the element
-# Instead of returning one giant block of text, Unstructured splits the PDF
-# into logical sections, which helps later chunking and retrieval.
-documents = loader.load()
+    print(f"Reading {pdf_path.name}")
 
-# Clean metadata.
-# hi_res parsing generates a large amount of metadata such as:
-# - coordinates
-# - bounding boxes
-# - layout information
-# - page geometry
-# Most vector databases do not need this information and some metadata
-# structures cannot be serialized correctly.
-# filter_complex_metadata removes these problematic fields while keeping
-# useful metadata such as page numbers and source information.
-documents = filter_complex_metadata(documents)
+    loader = UnstructuredLoader(
+        file_path=str(pdf_path),
+        strategy="hi_res"
+    )
 
-# Remove empty elements.
-# Some PDFs produce blank elements during parsing.
-# Examples:
-# - empty lines
-# - whitespace-only sections
-# - parsing artifacts
-# Keeping them would:
-# - waste embedding computation
-# - create useless vector entries
-# - reduce retrieval quality
-# Therefore we keep only elements that contain actual text.
-documents = [
-    d for d in documents
-    if d.page_content and d.page_content.strip()
-]
+    documents = loader.load()
 
-# Display how many usable document elements were extracted.
-# This acts as a sanity check to verify parsing succeeded.
-print(f"Parsed {len(documents)} elements")
+    documents = filter_complex_metadata(documents)
 
-# Preview a few parsed elements.
-# Looking at the output helps verify:
-# - the PDF was parsed correctly
-# - headings are preserved
-# - text is readable
-# - no major extraction issues occurred
-# This is an important debugging step before chunking and embedding.
-print("\nFirst 3 elements preview:\n")
+    documents = [
+        d for d in documents
+        if d.page_content and d.page_content.strip()
+    ]
 
-# Show the first three extracted elements.
-# Only the first 300 characters are displayed so the output remains readable.
-for i, doc in enumerate(documents[:3]):
-    print(f"--- Element {i+1} ---")
-    print(doc.page_content[:300])
-    print()
+    print(f"Parsed {len(documents)} elements")
+
 
 #2.2 chunking
 from langchain_text_splitters import RecursiveCharacterTextSplitter
