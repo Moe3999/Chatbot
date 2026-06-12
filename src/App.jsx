@@ -559,7 +559,7 @@ try {
   
   return (
     <div 
-      className={`flex h-screen ${
+      className={`flex h-screen w-full overflow-hidden ${
     darkMode ? "bg-black text-white" : "bg-white text-black"
   }`}
 >
@@ -737,7 +737,7 @@ try {
 </div>
 </div>
     {/* RIGHT SIDE (CHAT AREA) */}
-    <div className="flex flex-col flex-1">
+    <div className="flex flex-col flex-1 min-w-0">
 
       {/* Header */}
 <header className="px-6 py-4 flex items-center justify-between">
@@ -803,8 +803,8 @@ try {
       {/* Chat Area */}
       
       <main 
-        className="flex-1 overflow-y-auto p-4">
-        <div className="mx-auto flex max-w-4xl flex-col gap-3">
+        className="flex-1 overflow-y-auto px-6 py-4 w-full">
+        <div className="w-full flex flex-col gap-3">
 {activeMessages.map((msg, index) => (
   <div
     key={index}
@@ -974,9 +974,9 @@ setMessages(prev =>
     m.run_id === msg.run_id
       ? {
           ...m,
-          versions: [...uniqueVersions], // ✅ force new reference
-          current_version: Number(updated.current_version), // ✅ ensure correct type
-          content: updated.content ?? m.content, // ✅ optional but important
+          versions: [...uniqueVersions], // force new reference
+          current_version: Number(updated.current_version), // ensure correct type
+          content: updated.content ?? m.content, // optional but important
         }
       : m
   )
@@ -1189,7 +1189,7 @@ setMessages(prev =>
 <footer className="p-4">
   <div
     data-tour="input-box"
-    className={`mx-auto flex max-w-4xl items-center gap-2
+    className={`flex w-full items-center gap-2
       rounded-2xl border px-3 py-2 transition
       ${
         darkMode
