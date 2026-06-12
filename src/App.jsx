@@ -239,14 +239,14 @@ useEffect(() => {
 
 const threadId = activeThread;
 const renameThread = (threadId) => {
-  setThreadTitles(prev => ({
-    ...prev,
+  const updated = {
+    ...threadTitles,
     [threadId]: renameValue
-  }));
+  };
 
-  setRenamingThread(null);
-  setRenameValue("");
+  setThreadTitles(updated);
 
+  localStorage.setItem("threadTitles", JSON.stringify(updated));
 
   setRenamingThread(null);
   setRenameValue("");
@@ -295,7 +295,7 @@ const threads = Object.values(
   }, {})
 );
 const activeMessages = messages.filter(
-  m => m.thread_id === (activeThread ?? messages[messages.length - 1]?.thread_id)
+  m => m.thread_id === activeThread
 );
 console.log("ACTIVE THREAD:", activeThread);
 console.log("ACTIVE MESSAGES:", activeMessages);
@@ -307,6 +307,12 @@ console.log(
     content: m.content
   }))
 );
+useEffect(() => {
+  const saved = localStorage.getItem("threadTitles");
+  if (saved) {
+    setThreadTitles(JSON.parse(saved));
+  }
+}, []);
 useEffect(() => {
   const saved = localStorage.getItem("feedback");
   if (saved) {
@@ -396,7 +402,14 @@ useEffect(() => {
     console.error("Feedback error:", err);
   }
 };
+const runMetaRef = useRef({
+  runId: null,
+  toggle: null,
+  citations: []
+});
 
+let answer = "";
+let buffer = "";
 const sendMessage = async () => {
   if (!input.trim() || loading) return;
 
@@ -426,94 +439,122 @@ const sendMessage = async () => {
 setMessages(prev => [
   ...prev,
   userMessage,
-  { role: "ai", content: "", thread_id: newThreadId, tempId },
+  {
+    role: "ai",
+    content: "",
+    thread_id: newThreadId,
+    tempId,
+    run_id: null,
+    citations: [],
+  },
 ]);
-    
-    
 
-    try {
-      const res = await fetch("http://localhost:8000/ask", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          query: question,
-          mode: mode,
-          thread_id: newThreadId,
+setLoading(true);
+setStatus("thinking");
 
-        }),
-      });
+try {
+  const res = await fetch("http://localhost:8000/ask", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      query: question,
+      mode: mode,
+      thread_id: newThreadId,
+    }),
+  });
 
-      const runId = res.headers.get("X-Run-ID");
-      const toggle = res.headers.get("X-toggle");
-      const citationsHeader = res.headers.get("X-Citations");
-      const citations = JSON.parse(res.headers.get("X-Citations") || "[]");
-      console.log("Run ID:", runId);
-
-  console.log("TOGGLE:", toggle);
-  console.log("CITATIONS RAW:", citationsHeader);
-
- 
-      if (!res.ok) {
-        const err = await res.text();
-        console.log("Backend error:", err);
-        throw new Error(err);
-      } 
-      const reader = res.body.getReader();
-const decoder = new TextDecoder();
-let answer = "";
-
-while (true) {
-  const { value, done } = await reader.read();
-  if (done) break;
-
-  if (streamingRef.current !== tempId) return;
-  if (status !== "typing") {
-    setStatus("typing");
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(err);
   }
 
-  const chunk = decoder.decode(value);
-  answer += chunk;
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+
+  let buffer = "";
+  let answer = "";
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+
+    if (streamingRef.current !== tempId) return;
+
+    if (status !== "typing") {
+      setStatus("typing");
+    }
+
+    buffer += decoder.decode(value, { stream: true });
+
+    const events = buffer.split("\n\n");
+    buffer = events.pop() || "";
+
+    for (const event of events) {
+      if (!event.startsWith("data: ")) continue;
+
+      try {
+        const payload = JSON.parse(event.replace(/^data:\s*/, ""));
+
+        if (payload.type === "meta") {
+          runMetaRef.current = {
+            runId: payload.run_id,
+            toggle: payload.toggle,
+            citations: payload.citations || [],
+          };
+          continue;
+        }
+
+        if (payload.type === "token") {
+          answer += payload.token;
+
+          const meta = runMetaRef.current;
+
+          setMessages(prev =>
+            prev.map(m =>
+              m.tempId === tempId
+                ? {
+                    ...m,
+                    content: answer,
+                    run_id: meta.runId,
+                    toggle: meta.toggle,
+                    citations: meta.citations || [],
+                  }
+                : m
+            )
+          );
+
+          requestAnimationFrame(() => {
+            messagesEndRef.current?.scrollIntoView({
+              behavior: "smooth",
+            });
+          });
+        }
+      } catch (err) {
+        console.error("SSE parse error:", err);
+      }
+    }
+  }
+
+  // optional final cleanup message fix
+} catch (err) {
+  console.error("Request failed:", err);
 
   setMessages(prev =>
-    prev.map((m, i) =>
+    prev.map(m =>
       m.tempId === tempId
         ? {
             ...m,
-            content: answer,
-            run_id: runId,
-            toggle,
-            citations,
+            content: "Error connecting to backend.",
           }
         : m
     )
   );
-
-
-  requestAnimationFrame(() => {
-    messagesEndRef.current?.scrollIntoView({
-      behavior: "smooth",
-    });
-  });
+} finally {
+  setLoading(false);
+  setStatus("");
 }
-    } catch (error) {
-      console.error(error);
-
-      setMessages((prev) => {
-        const updated = [...prev];
-
-        updated[updated.length - 1] = {
-          role: "ai",
-          content: "Error connecting to backend.",
-        };
-
-        return updated;
-      });
-    } finally {
-      setLoading(false);
-      setStatus("");
-    }
   };
   
   return (
@@ -1161,10 +1202,10 @@ setMessages(prev =>
       value={input}
       disabled={loading}
       onChange={(e) => setInput(e.target.value)}
-      onKeyDown={(e) => {
+     onKeyDown={(e) => {
   if (e.key === "Enter") {
     e.preventDefault();
-    renameThread(thread.thread_id);
+    sendMessage();
   }
 }}
       className={`flex-1 border-0 shadow-none focus-visible:ring-0 bg-transparent
@@ -1272,7 +1313,7 @@ onClick={() => {
   } else {
     setShowTour(false);
     setTourIndex(0);
-    setTourCompleted(true); // 👈 key part
+    setTourCompleted(true);
   }
 }}
           >
